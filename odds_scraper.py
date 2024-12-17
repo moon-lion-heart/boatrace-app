@@ -6,14 +6,18 @@ import time
 import os
 import re
 import requests
-# ローカル環境でのみ使用する
-# from dotenv import load_dotenv
-# load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 
 class RaceInfo:
-    def __init__(self, field_code, race_number, odds_refresh_time=None):
+    def __init__(self, field_code, race_number, deadline_time=None, odds_refresh_time=None):
         self.field_code = field_code
         self.race_number = race_number
+        self.deadline_time = deadline_time
         self.odds_refresh_time = odds_refresh_time
 
 STATUS_DEADLINE = ""
@@ -82,7 +86,7 @@ def run():
         print("No races found that meet the conditions for getting odds info.")
         return
 
-    print("Get started crawling odds info.")
+    print("Get started scraping odds info.")
     odds_column = create_combination_columns()
     odds_tables = []
     for race in races:
@@ -112,8 +116,7 @@ def run():
             odds_list.extend(tmp_odds_list)
             odds_dict = dict(zip(odds_column, odds_list))
             odds_json = json.dumps(odds_dict)
-            # 締め切り何分前かの情報も欲しいかも
-            odds_table = [date, field_code, race_number, refresh_time, datetime_now_str]
+            odds_table = [date, field_code, race_number, race.deadline_time, refresh_time, datetime_now_str]
             odds_table.append(odds_json)
             odds_tables.append(odds_table)
         except Exception as e:
@@ -122,8 +125,8 @@ def run():
     if len(odds_tables) > 0:
         # insert
         query = """\
-        INSERT INTO odds (race_date, field_code, race_number, odds_refresh_time, created_at, odds) \
-        VALUES (%s, %s, %s, %s, %s, %s)\
+        INSERT INTO odds (race_date, field_code, race_number, deadline_time, odds_refresh_time, created_at, odds) \
+        VALUES (%s, %s, %s, %s, %s, %s, %s)\
         """
         cursor.executemany(query, odds_tables)
         conn.commit()
@@ -150,16 +153,16 @@ def scrape_index(session, date):
         for tbody in tbodies:
             tds = tbody.find_all('td')
             if len(tds) != 12: # 最終Ｒ発売終了
-                print("Final round of sales is closed.")
+                # print("Final round of sales is closed.")
                 continue
             
             #現在時刻よりも締め切り時間が指定時間以上あとかどうか
-            deadline_time = tds[len(tds)-1].get_text()
-            deadline_time = datetime.strptime(deadline_time, "%H:%M")
+            deadline_time_str = tds[len(tds)-1].get_text()
+            deadline_time = datetime.strptime(deadline_time_str, "%H:%M")
             deadline_time = datetime.combine(current_time.date(), deadline_time.time())
             time_difference = deadline_time - current_time
             if abs(time_difference) > timedelta(minutes=DEADLINE_M):
-                print(f"It is more than {DEADLINE_M} minutes before the deadline.:{deadline_time}")
+                # print(f"It is more than {DEADLINE_M} minutes before the deadline.:{deadline_time}")
                 continue
 
             # get next race number
@@ -178,7 +181,7 @@ def scrape_index(session, date):
                 continue
             field_code = href[28:30]
 
-            races.append(RaceInfo(field_code, race_number))
+            races.append(RaceInfo(field_code, race_number, deadline_time_str))
     
         return races
     except Exception as e:
@@ -229,7 +232,7 @@ def fetch_race_info(cursor, date):
     races = []
     
     for row in rows:
-        races.append(RaceInfo(row[1], row[2], row[3]))
+        races.append(RaceInfo(row[1], row[2], None, row[3]))
         print(f"Fetch Result=[race_date:{row[0]}, field_code:{row[1]}, race_number:{row[2]}, odds_refresh_time:{row[3]}, created_at:{row[4]}]")
         
     if len(races) == 0:
