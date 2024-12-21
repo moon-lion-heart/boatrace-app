@@ -76,6 +76,7 @@ def run():
         needs_append = True
         for index_race in index_races:
             if unfixed_odds_race.field_code == index_race.field_code:
+                index_race.odds_refresh_time = unfixed_odds_race.odds_refresh_time
                 needs_append = False
                 break
         if needs_append:
@@ -87,34 +88,35 @@ def run():
         return
 
     print("Get started scraping odds info.")
-    odds_column = create_combination_columns()
+    combinations = create_combinations()
     odds_tables = []
     for race in races:
         field_code = race.field_code
         race_number = race.race_number
-        refresh_time = race.odds_refresh_time
         try:      
             # 3連単
             url = create_url("odds3t", race_number, field_code, date)
-            odds_list, refresh_time = scrape_odds(session, url)
-            if len(odds_list) == 0:
+            trifecta_odds, refresh_time = scrape_odds(session, url)
+            if len(trifecta_odds) == 0:
                 print("Failed to get trifecta odds info.")
                 continue
 
             # 前回取得時と同じオッズ更新時間の場合レコードには追加しない
+            print(f"refresh_time: {refresh_time}, race.odds_refresh_time: {race.odds_refresh_time}")
             if refresh_time == race.odds_refresh_time:
                 print("No updates to the trifecta odds info")
                 continue
             
             # 3連複
             url = create_url("odds3f", race_number, field_code, date)
-            tmp_odds_list, refresh_time = scrape_odds(session, url)
-            if len(tmp_odds_list) == 0:
+            trio_odds, refresh_time = scrape_odds(session, url)
+            if len(trio_odds) == 0:
                 print("Failed to get trio odds info.")
                 continue
 
-            odds_list.extend(tmp_odds_list)
-            odds_dict = dict(zip(odds_column, odds_list))
+            trifecta_odds_dict = dict(zip(combinations["3t"], trifecta_odds))
+            trio_odds_dict = dict(zip(combinations["3f"], trio_odds))
+            odds_dict = {"3t": trifecta_odds_dict, "3f": trio_odds_dict}
             odds_json = json.dumps(odds_dict)
             odds_table = [date, field_code, race_number, race.deadline_time, refresh_time, datetime_now_str]
             odds_table.append(odds_json)
@@ -222,7 +224,7 @@ def scrape_odds(session, url):
 def fetch_race_info(cursor, date):
     # 当日の各レース場の最新レコードで未確定オッズのレース情報をDBから取得
     query = f"""\
-    SELECT t1.race_date, t1.field_code, t1.race_number, t1.odds_refresh_time, t1.created_at FROM odds t1 \
+    SELECT t1.race_date, t1.field_code, t1.race_number, t1.deadline_time, t1.odds_refresh_time, t1.created_at FROM odds t1 \
     INNER JOIN (SELECT field_code, MAX(created_at) AS max_created_at FROM odds \
     WHERE race_date = '{date}' AND odds_refresh_time != '{STATUS_DEADLINE}' GROUP BY field_code) t2 \
     ON t1.field_code = t2.field_code AND t1.created_at = t2.max_created_at;\
@@ -232,8 +234,13 @@ def fetch_race_info(cursor, date):
     races = []
     
     for row in rows:
-        races.append(RaceInfo(row[1], row[2], None, row[3]))
-        print(f"Fetch Result=[race_date:{row[0]}, field_code:{row[1]}, race_number:{row[2]}, odds_refresh_time:{row[3]}, created_at:{row[4]}]")
+        races.append(RaceInfo(row[1], row[2], row[3], row[4]))
+        print(f"Fetch Result=[race_date:{row[0]}, ",end="")
+        print(f"field_code:{row[1]}, ",end="")
+        print(f"race_number:{row[2]}, ",end="")
+        print(f"deadline_time:{row[3]}, ",end="")
+        print(f"odds_refresh_time:{row[4]}, ",end="")
+        print(f"created_at:{row[5]}")
         
     if len(races) == 0:
         print("Fetch Result: No record found.")
@@ -241,7 +248,8 @@ def fetch_race_info(cursor, date):
     return races
 
 
-def create_combination_columns():
+def create_combinations():
+    combinations_for_each_type = {}
     # 3連単
     combinations = []
     for second in range(2, 7):
@@ -260,18 +268,20 @@ def create_combination_columns():
                     third -= 1
                 combination = f"{first}-{tmp_second}-{third}"
                 combinations.append(combination)
-
+    combinations_for_each_type["3t"] = combinations
     # 3連複
+    combinations = []
     for second in range(2, 6):
         for third in range(second+1, 7):
             for first in range (1, second):
                 combination = f"{first}={second}={third}"
                 combinations.append(combination)
+    combinations_for_each_type["3f"] = combinations
 
-    return combinations
+    return combinations_for_each_type
 
 
 def create_url(category, race_no, field_code, date):
     url = f"https://www.boatrace.jp/owpc/pc/race/{category}?rno={race_no}&jcd={field_code}&hd={date}"
     print(url)  
-    return url                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     
+    return url
