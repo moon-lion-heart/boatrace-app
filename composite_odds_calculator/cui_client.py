@@ -2,7 +2,9 @@ import json
 import argparse
 import logging
 import os
+from datetime import datetime
 from odds_info_manager import OddsInfoManager
+from color import Colorize
 
 
 # この辺は共通定義ファイルを作ってそこに集めたい気持ちがある
@@ -33,6 +35,7 @@ FIELD_CODE_MAP = {
     "24":"大村"
 }
 
+STATUS_DEADLINE = ""
 
 SECTION_CHOIE_RACE = 0
 SECTION_DISPLAY_ODDS = 1
@@ -77,10 +80,13 @@ class CUIClient:
     def section_choice_race(self, odds_infos):
         self.odds_infos = odds_infos
         for odds_info in self.odds_infos:
+            deadline_time = datetime.strptime(odds_info.deadline_time, "%H:%M").time()
+            current_time = datetime.now().time()
+            deadline_time_str = odds_info.deadline_time if deadline_time >= current_time else "締切済"
             print(f"ID：{odds_info.field_code}", end=" ")
             print(f"レース場：{FIELD_CODE_MAP[odds_info.field_code]}, ", end=" ")
             print(f"レース：{odds_info.race_number}, ", end=" ")
-            print(f"締め切り時間：{odds_info.deadline_time}")
+            print(f"締め切り時間：{deadline_time_str}")
 
         enter = input("q:プログラムを終了する\nIDを入力してください：")
         if enter == "q":
@@ -98,12 +104,15 @@ class CUIClient:
                 print(f"レース場：{FIELD_CODE_MAP[odds_info.field_code]}, ", end=" ")
                 print(f"レース：{odds_info.race_number}, ", end=" ")
                 print(f"締め切り時間：{odds_info.deadline_time}, ", end=" ")
+                if odds_info.odds_refresh_time == STATUS_DEADLINE: odds_refresh_time = "締切時"
+                else: odds_refresh_time = odds_info.odds_refresh_time
+                print(f"更新時間：{odds_refresh_time}, ", end=" ")
                 print(f"賭け式：{COMBINATION_CHARACTERS[self.combination_type]}")
                 self.odds_dict = json.loads(odds_info.odds_json)
 
                 displayed_odds_count = 0
                 for combination, odds in self.odds_dict[self.combination_type].items():
-                    print(f"買い目：{combination}, オッズ：{odds}|", end=" ")
+                    print(f"買い目：{Colorize.aqua_marine(combination)}, オッズ：{Colorize.salmon(odds, 5)}|", end=" ")
                     displayed_odds_count += 1
                     if displayed_odds_count == self.odds_per_line:
                         print("")
@@ -111,6 +120,7 @@ class CUIClient:
                 break
         if not is_valid_enter:
             print(f"不正な入力です：{self.entered_field_code}")
+            self.section = SECTION_CHOIE_RACE
             return False
         self.section = SECTION_CALCULATE_ODDS
         return True
@@ -197,7 +207,7 @@ if __name__ == "__main__":
 
             if cui_client.get_section() == SECTION_DISPLAY_ODDS:
                 # オッズ一覧表示（デフォルトは3連単）
-                to_next_section = cui_client.section_display_odds(odds_infos)
+                to_next_section = cui_client.section_display_odds()
                 if not to_next_section: continue
                 
             if cui_client.get_section() == SECTION_CALCULATE_ODDS:
